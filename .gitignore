@@ -1,0 +1,12 @@
+# directories
+__pycache__
+.ipynb_checkpoints
+.venv
+ai
+
+tuned_model_en
+tuned_model_all
+hyperparameter_tuning_models
+
+data
+playground

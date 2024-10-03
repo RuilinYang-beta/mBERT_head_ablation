@@ -1,5 +1,16 @@
 """
-Load a fine-tuned model, and evaluate it on the test set of XNLI.
+Load a fine-tuned model, 
+and evaluate it on the test set of XNLI **with regard to** each language.
+The result is a matrix of size (NUM_LAYERS, NUM_HEADS, NUM_LANGS).
+
+USAGE: 
+```
+python eval_sep_lang.py <MODEL> <ABLATION>
+<MODEL>: en for the model fine-tuned on En data
+         all for the model fine-tuned on all data
+<ABLATION>: head for head ablation
+            layer for layer ablation where only one head is left
+```
 """
 import os
 import time 
@@ -10,15 +21,23 @@ import evaluate
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
 from datasets import load_from_disk, DatasetDict
 
+from utils import prepare_eval_parser
+from utils import tokenize_batch_one_lang
 from utils import eval_without_trainer_fast, ablate_head_in_place, ablate_layer_but_one_head_in_place
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# --- choose what model to ablate ---
-# MODEL_PATH = "./tuned_model_all/"
-MODEL_PATH = "./tuned_model_en"
-# -----------------------------------
+# === get the choice of model and ablation mode ===
+parser = prepare_eval_parser()
+args = parser.parse_args()
+print(args)
 
+MODEL_PATH = "./tuned_model_en" if args.model == "en" else "./tuned_model_all"
+
+model_abbr = args.model                 # en   | all
+ablate_abbr = args.ablation             # head | layer
+
+# ---- constants ----
 LANG_LIST = ['ar','bg','de','el','en',
              'es','fr','hi','ru','sw',
              'th','tr','ur','vi','zh']
@@ -27,7 +46,9 @@ NUM_LAYERS = 12
 NUM_HEADS = 12
 NUM_LANGS = 15
 
-# ===== load data & model =====
+# features: ["premise", "hypothesis", "label"]
+# where "premise" and "hypothesis" each map to 
+# a dictionary of 15 language-translation pairs
 xnli = load_from_disk("./playground/xnli_purified/")
 xnli = xnli['test']  # only care about test set now
 
@@ -37,15 +58,7 @@ model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
 
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-# ========= tokenization =========
-def tokenize_batch(batch, lang="en"):
-    premise = [p[lang] for p in batch["premise"]]
-    hypothesis = [h[lang] for h in batch["hypothesis"]]
-
-    return tokenizer(premise, hypothesis, truncation=True)
-
 # ===== evaluation =====
-
 accuracy_metric = evaluate.load("accuracy")
 f1_metric = evaluate.load("f1")
 
@@ -57,7 +70,7 @@ print("--- entering eval loop ---")
 # tokenize one language then evaluate models of different ablation on it
 for lang_idx, lang in enumerate(LANG_LIST):
     # tokenize dataset of a language 
-    eval_set = xnli.map(lambda batch: tokenize_batch(batch, lang=lang), 
+    eval_set = xnli.map(lambda batch: tokenize_batch_one_lang(tokenizer, batch, lang=lang), 
                         batched=True) 
     eval_set = eval_set.remove_columns(["premise", "hypothesis"])
     eval_set = eval_set.rename_column("label", "labels")
@@ -69,17 +82,20 @@ for lang_idx, lang in enumerate(LANG_LIST):
             # make a copy of original model for each ablation
             model_copy = copy.deepcopy(model)
 
-            # ----- two alternatives of ablation -----
-            # ablate_head_in_place(model_copy, 
-            #                      layer_to_ablate=num_layer, 
-            #                      head_to_ablate=num_head)
+            # two alternatives of ablation
+            if args.ablation == "head": 
+                ablate_head_in_place(model_copy, 
+                                    layer_to_ablate=num_layer, 
+                                    head_to_ablate=num_head)
 
-            ablate_layer_but_one_head_in_place(model_copy, 
-                                               layer_to_ablate=num_layer,
-                                               head_to_keep=num_head)
-
-            # -----------------------------------------
+            elif args.ablation == "layer":
+                ablate_layer_but_one_head_in_place(model_copy, 
+                                                    layer_to_ablate=num_layer,
+                                                    head_to_keep=num_head)
+            else: 
+                raise TypeError(f"Ablation method can only be head or layer.")
             
+                        
             predictions, references = eval_without_trainer_fast(model_copy, 
                                                                 eval_set, 
                                                                 data_collator)
@@ -98,6 +114,5 @@ for lang_idx, lang in enumerate(LANG_LIST):
             f1_matrix[num_layer, num_head, lang_idx] = f1['f1']
         
     # save per language
-    np.save('./results/sample-one-lang.npy', accuracy_matrix)
-    break
-    # np.save('./results/en-layer-f1.npy', f1_matrix)
+    np.save(f'./results/ablations/{model_abbr}-{ablate_abbr}-accuracy.npy', accuracy_matrix)
+    np.save(f'./results/ablations/{model_abbr}-{ablate_abbr}-f1.npy', f1_matrix)

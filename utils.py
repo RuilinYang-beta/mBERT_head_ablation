@@ -1,8 +1,61 @@
+import argparse
 import math
 import random 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+
+def prepare_tune_parser():
+  parser = argparse.ArgumentParser()
+  parser.add_argument("model",
+                      choices=['all', 'en'],
+                      help="""
+                      choose on which data to fine-tune mBERT:
+                      all - data of all languages
+                      en  - data of English language only 
+                      """
+                      ) 
+  parser.add_argument("-n", "--num_sets", 
+                      type=int, default=10,
+                      help="number of sets of hyperparameters to generate"
+                      )
+  return parser
+
+def prepare_eval_parser():
+  parser = argparse.ArgumentParser()
+  parser.add_argument("model",
+                      choices=['all', 'en'],
+                      help="choose which model to evaluate"
+                      )  
+
+  parser.add_argument("ablation", 
+                      choices=["head", "layer"],
+                      help="choose ablation mode"
+                      )
+
+  return parser
+
+
+def tokenize_batch_one_lang(tokenizer, batch, lang="en"):
+  """
+  Tokenize premises and hypothesis of a chosen language.
+  Apply to dataset with ['premise', 'hypothesis', 'label'] features,
+  where 'premise' and 'hypothesis' each is a dictionary
+  of 15 language-tranlation pairs.
+  """
+  premise = [p[lang] for p in batch["premise"]]
+  hypothesis = [h[lang] for h in batch["hypothesis"]]
+
+  return tokenizer(premise, hypothesis, truncation=True)
+
+def tokenize_batch_all_lang(tokenizer, batch):
+  """
+  Tokenize premises and hypothesis of all languages.
+  Apply to flattened dataset where each of 'premise' and 'hypothesis' 
+  map to a value of translation of a certain language.
+  """
+  return tokenizer(batch["premise"], batch["hypothesis"], truncation=True)
 
 
 def generate_hyperparam_set(): 

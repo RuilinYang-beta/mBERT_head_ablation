@@ -6,6 +6,14 @@
   - how computationally expensive are these? 
   - how to rent computing power? 
   - how to analyze the stats? 
+* Stages of the project
+  - read paper
+  - check data
+  - fine-tune & hyperparam tuning
+  - baseline and evaluation 
+  - ablation and evaluation
+  - analysis of ablation
+  - write paper 
 
 * Progress
   - [done] connect with SSH 
@@ -38,3 +46,4 @@
   - theoretical and emperial baseline
     - theoretical: computed from data
     - emperical: randomly attach N HeadForClassification to mBERT and compute
+  * [TODO]: clean code, roughly look at data
